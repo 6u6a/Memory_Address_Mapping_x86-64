@@ -26,6 +26,7 @@
 #include <asm/uaccess.h>	// for copy_to_user()
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
+#include "dram_dev.h"
 
 char modname[] = "dram";	// for displaying driver's name
 int my_major = 85;		// note static major assignment
@@ -33,12 +34,14 @@ unsigned long	dram_size;		// total bytes of system memory
 
 loff_t my_llseek( struct file *file, loff_t offset, int whence );
 ssize_t my_read( struct file *file, char *buf, size_t count, loff_t *pos );
+long self_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 struct file_operations
 my_fops =	{
 		owner:		THIS_MODULE,
 		llseek:		my_llseek,
 		read:		my_read,
+		unlocked_ioctl: self_ioctl,
 		};
 
 static struct miscdevice dram_dev =
@@ -133,6 +136,50 @@ loff_t my_llseek( struct file *file, loff_t offset, int whence )
 	file->f_pos = newpos;
 
 	return	newpos;
+}
+
+long self_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int ret = 0;
+    long total_count = 0;
+    if(_IOC_TYPE(cmd) != DEV_IOC_MAGIC)
+    {
+        printk("wrong magic! %c\n", _IOC_TYPE(cmd));
+        return -EINVAL;
+    }
+    if(_IOC_NR(cmd) > DEV_NR_MAX)
+    {
+        printk("wrong NR!\n");
+        return -EINVAL;
+    }
+
+    if(_IOC_DIR(cmd) & _IOC_WRITE)
+    {
+        if(!access_ok(VERIFY_WRITE, (void *)arg, _IOC_SIZE(cmd)))
+        {
+            printk("arg NOT WRITE!\n");
+            return -EINVAL;
+        }
+    }
+    if(_IOC_DIR(cmd) & _IOC_READ)
+    {
+        if(!access_ok(VERIFY_READ, (void *)arg, _IOC_SIZE(cmd)))
+        {
+            printk("arg NOT READ!\n");
+            return -EINVAL;
+        }
+    }
+
+    switch(cmd)
+    {
+    case DEV_GET_SYSMEM:
+        __put_user(dram_size, (unsigned long *)arg);
+        break;
+
+	default:
+		return -EINVAL;
+	}
+	return ret;
 }
 
 MODULE_LICENSE("GPL");

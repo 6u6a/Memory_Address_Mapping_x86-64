@@ -25,6 +25,7 @@
 #include <unistd.h>	// for read(), lseek64()
 #include <stdlib.h>	// for exit()
 #include <termios.h>	// for tcgetattr(), tcsetattr()
+#include "dram_dev.h"
 
 #define MAXNAME	80
 #define BUFHIGH 16
@@ -59,11 +60,19 @@ int main( int argc, char *argv[] )
  	else { fprintf( stderr, "argument needed\n" ); exit(1); }
 
 	// open the file for reading
-	int	fd = open( filename, O_RDONLY );
+	int	fd = open( filename, O_RDWR );
 	if ( fd < 0 ) { perror( filename ); exit(1); }
 
 	// obtain the filesize (if possible)
  	unsigned long 	filesize = lseek64( fd, 0LL, SEEK_END );
+    int cmd = DEV_GET_SYSMEM;
+    unsigned long vm_mem = 0;
+    if(ioctl(fd, cmd, &vm_mem) < 0)
+    {
+        printf("get sys mem failed!\n");
+        return -1;
+    }
+	filesize = vm_mem;
 
 	if ( filesize < 0LL ) 
 		{ 
