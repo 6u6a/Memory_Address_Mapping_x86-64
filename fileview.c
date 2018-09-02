@@ -47,11 +47,13 @@
 #define KB_END  0x00345B1B
 #define KB_DEL  0x00335B1B
 
+#define PAGE_SIZE 0x1000
+#define MAX_OUT 0x100
 
 char progname[] = "FILEVIEW";
 char filename[ MAXNAME + 1 ];
 char buffer[ BUFSIZE ];
-char outline[ 80 ];
+char outline[ MAX_OUT ];
 
 int main( int argc, char *argv[] )
 {
@@ -72,6 +74,27 @@ int main( int argc, char *argv[] )
         printf("get sys mem failed!\n");
         return -1;
     }
+	pa_to_process res;
+	memset(&res, 0x0, sizeof(pa_to_process));
+/*	res.pa = 0x60001234;
+	int ii, t = 10;
+	do{
+		if(ioctl(fd, DEV_GET_RMAP, &res) < 0)
+		{
+			printf("get pa rmap failed!\n");
+			return -1;
+		}
+		for(ii = 0; ii < res.process.pid_c && res.process.pid_c > 1; ii ++){
+			printf("va = 0x%lx, pid = %d\n", res.process.va[ii], res.process.pid[ii]);
+		}
+		if(ii > 1){
+			printf("pa = 0x%x\n\n", res.pa);
+			t --;
+		}
+		res.pa += 0x1000;
+	}while(t && res.pa < vm_mem);
+	return 0;
+*/
 	filesize = vm_mem;
 
 	if ( filesize < 0LL ) 
@@ -97,7 +120,7 @@ int main( int argc, char *argv[] )
 	printf( "\e[H\e[J" );
 
 	// display the legend
-	int	i, j, k;
+	int	i, j, k, z;
 	k = (77 - strlen( progname ))/2;
 	printf( "\e[%d;%dH %s ", 1, k, progname );
 	k = (77 - strlen( filename ))/2;
@@ -139,7 +162,37 @@ int main( int argc, char *argv[] )
 			where += nbytes;
 			}
 		int	datalen = BUFSIZE - to_read; 
-
+		int	linelen, flag, v_print;
+		if(location >= 0 && location < vm_mem){//判断物理地址是否合法
+			memset(&res, 0x0, sizeof(pa_to_process));
+			memset(outline, ' ', MAX_OUT);
+			printf("\e[%d;%dH%s", 22, COL, outline);//清空改行输出
+			memset(outline, 0x0, MAX_OUT);
+			res.pa = location;
+			if(ioctl(fd, DEV_GET_RMAP, &res) < 0)//获取反向映射内容
+			{
+				printf("\nget pa rmap failed!\n");
+				return -1;
+			}
+			linelen = 0;
+			flag = 0x3 & res.pa;
+			//反向映射内容输出
+			linelen += sprintf(outline + linelen, "\t0x%013lx->(%d,%s)%c", location, res.process.pid_c,
+								(flag == PAGE_MAPPING_ANON ? "anon" : (flag == PAGE_MAPPING_KSM ? "ksm" : "file")),
+								(res.process.pid_c > 0 ? ':' : '\0'));
+			for(z = 0; z < res.process.pid_c; z ++){
+				if(linelen >= MAX_OUT - 40){
+					linelen += sprintf(outline + linelen, "!!No more MEM!!");
+					break;
+				}
+				if(!v_print){
+					linelen += sprintf(outline + linelen, " %d", res.process.pid[z]);
+				}else{
+					linelen += sprintf(outline + linelen, " %d(0x%lx)", res.process.pid[z], res.process.va[z]);
+				}
+			}
+			printf("\e[%d;%dH%s", 22, COL, outline);
+		}
 		// display the data just read into the 'buffer[]' array
 		unsigned char		*bp;
 		unsigned short		*wp;
@@ -147,7 +200,6 @@ int main( int argc, char *argv[] )
 		unsigned long long	*qp;
 		for (i = 0; i < BUFHIGH; i++)
 			{
-			int	linelen;
 
 			// draw the line-location (13-digit hexadecimal)
 			linelen = sprintf( outline, "%013llX ", location );
@@ -191,7 +243,6 @@ int main( int argc, char *argv[] )
 				linelen += sprintf( outline+linelen, "     " ); 
 				break;
 				}
-
 			// draw the line in ascii format
 			for (j = 0; j < BUFWIDE; j++)
 				{
@@ -199,10 +250,9 @@ int main( int argc, char *argv[] )
 				if (( ch < 0x20 )||( ch > 0x7E )) ch = '.';
 				linelen += sprintf( outline+linelen, "%c", ch);
 				}
-
 			// transfer this output-line to the screen 
 			printf( "\e[%d;%dH%s", ROW+i, COL, outline );
-
+			
 			// advance 'location' for the next output-line
 			location += BUFWIDE;
 			} 	
@@ -242,6 +292,7 @@ int main( int argc, char *argv[] )
 			case 'D': case 'd':	format = 4; break;
 			case 'Q': case 'q':	format = 8; break;
 			case 'O': case 'o':	format = 16; break;
+			case 'V': case 'v': v_print = (v_print + 1) % 2; break; //反向映射内容输出格式控制
 
 			// seek to a user-specified file-position
 			case KB_SEEK:
